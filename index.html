@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Archivo Histórico - Gestor de Inventario</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            position: relative;
+        }
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(135deg, #6A1B29 0%, #6A1B29 45%, #F5F5F4 45.1%, #F5F5F4 100%);
+            z-index: -1;
+            pointer-events: none;
+        }
+        .scrollbar-none::-webkit-scrollbar { display: none; }
+        .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+        .bg-guinda { background-color: #6A1B29; }
+        .text-guinda { color: #6A1B29; }
+        .border-guinda { border-color: #6A1B29; }
+        .hover\:bg-guinda-dark:hover { background-color: #4A101A; }
+        .tab-active {
+            background-color: #6A1B29 !important;
+            color: #ffffff !important;
+            box-shadow: 0 4px 14px 0 rgba(106, 27, 41, 0.25);
+        }
+        #splashScreen {
+            background: linear-gradient(135deg, #6A1B29 0%, #4A101A 50%, #ffffff 50.1%, #F5F5F4 100%);
+            transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.6s;
+        }
+        .splash-hidden {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="text-stone-800 min-h-screen flex flex-col justify-between">
+    <div id="splashScreen" class="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 text-center select-none backdrop-blur-md">
+        <div class="bg-white/80 backdrop-blur-xl p-8 md:p-12 rounded-3xl shadow-2xl border border-white/60 max-w-xl w-full flex flex-col items-center relative overflow-hidden">
+            <img src="ipn logo.jfif" alt="IPN" class="absolute top-4 left-4 h-14 w-14 object-contain bg-white rounded-full p-2 shadow-lg border border-stone-100" onerror="this.style.display='none'">
+            <img src="cecyt 3 logo.png" alt="CECyT 3" class="absolute top-4 right-4 h-14 w-14 object-contain bg-white rounded-full p-2 shadow-lg border border-stone-100" onerror="this.style.display='none'">
+            <div class="absolute -top-12 -left-12 w-32 h-32 bg-rose-900/10 rounded-full blur-2xl pointer-events-none"></div>
+            <span class="text-xs font-extrabold uppercase tracking-widest text-guinda bg-rose-50 px-3 py-1 rounded-full mb-3 mt-8 border border-rose-100">
+                Instituto Politécnico Nacional
+            </span>
+            <h1 class="text-3xl md:text-4xl font-extrabold text-stone-800 tracking-tight leading-tight mb-3">
+                Bienvenido al <br><span class="text-guinda">Archivo Histórico</span>
+            </h1>
+            <p class="text-stone-500 text-sm mb-8 max-w-md font-medium">
+                Plataforma institucional de gestión, consulta y control de acervo documental y piezas históricas.
+            </p>
+            <button onclick="cerrarBienvenida()" class="group relative inline-flex items-center justify-center gap-3 px-8 py-4 text-base font-bold text-white bg-guinda hover:bg-guinda-dark rounded-2xl shadow-xl shadow-rose-950/20 transition-all duration-300 hover:scale-105 active:scale-95 w-full sm:w-auto">
+                <span>Iniciar Sistema</span>
+                <i class="fa-solid fa-arrow-right text-sm transition-transform duration-300 group-hover:translate-x-1"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal de contraseña -->
+    <div id="modalClave" class="hidden fixed inset-0 z-[70] items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm border border-stone-100">
+            <div class="flex items-center gap-2.5 mb-3">
+                <i class="fa-solid fa-lock text-guinda text-xl"></i>
+                <h3 class="text-lg font-bold text-stone-800">Contraseña requerida</h3>
+            </div>
+            <p id="claveTexto" class="text-sm text-stone-500 mb-4">Escribe la contraseña para continuar.</p>
+            <input type="password" id="claveInput" autocomplete="off" placeholder="Contraseña" class="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-sm tracking-widest">
+            <p id="claveError" class="hidden text-xs text-rose-600 font-semibold mt-2">Contraseña incorrecta. Intenta de nuevo.</p>
+            <div class="flex justify-end gap-2 mt-5">
+                <button type="button" onclick="cancelarClave()" class="px-4 py-2 rounded-xl text-sm font-bold text-stone-600 bg-stone-100 hover:bg-stone-200 transition-colors">Cancelar</button>
+                <button type="button" onclick="enviarClave()" class="px-4 py-2 rounded-xl text-sm font-bold text-white bg-guinda hover:bg-guinda-dark transition-colors">Aceptar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de edición -->
+    <div id="modalEditar" class="hidden fixed inset-0 z-[60] items-start justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 md:p-8 w-full max-w-4xl my-8 border border-stone-100">
+            <div class="flex items-center justify-between mb-6 border-b border-stone-100 pb-3">
+                <div class="flex items-center gap-2.5">
+                    <i class="fa-solid fa-pen text-guinda text-xl"></i>
+                    <h2 class="text-xl font-bold text-stone-800">Editar Registro</h2>
+                </div>
+                <button type="button" onclick="cerrarEdicion()" class="text-stone-400 hover:text-stone-700 text-xl px-2" title="Cerrar">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <form id="editarForm" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+                <input type="hidden" id="editId">
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Sección Destino</label>
+                    <select id="editSeccion" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm" required></select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Fecha o Año</label>
+                    <input type="text" id="editFecha" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Código Único</label>
+                    <input type="text" id="editCodigo" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Título / Identificador</label>
+                    <input type="text" id="editTitulo" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Autor / Creador</label>
+                    <input type="text" id="editAutor" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Ubicación (L / E / EÑ)</label>
+                    <input type="text" id="editUbicacion" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm font-mono tracking-wider" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Material</label>
+                    <input type="text" id="editMaterial" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Conservación</label>
+                    <select id="editEstado" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm" required></select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">No. de Unidades</label>
+                    <input type="number" id="editUnidades" min="1" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm">
+                </div>
+                <div class="md:col-span-3">
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Descripción General</label>
+                    <input type="text" id="editDescripcion" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm" required>
+                </div>
+                <div class="md:col-span-4">
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Observaciones</label>
+                    <input type="text" id="editObservaciones" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm">
+                </div>
+                <div class="lg:col-span-4 flex justify-end gap-2 mt-2">
+                    <button type="button" onclick="cerrarEdicion()" class="px-6 py-3 rounded-xl text-sm font-bold text-stone-600 bg-stone-100 hover:bg-stone-200 transition-colors">Cancelar</button>
+                    <button type="submit" class="bg-guinda hover:bg-guinda-dark text-white font-bold py-3 px-8 rounded-xl transition-all duration-200 shadow-lg shadow-rose-950/20">
+                        <i class="fa-solid fa-floppy-disk mr-2"></i> Guardar Cambios
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl flex-grow">
+        <header class="mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-6 border-b border-white/20 pb-6">
+            <div class="flex items-center gap-4 w-full md:w-auto">
+                <img src="ipn logo.jfif" alt="Logo IPN" class="h-12 w-12 object-contain bg-white rounded-full p-1.5 shadow-md border border-white/20 shrink-0" onerror="this.style.display='none'">
+                <div class="flex items-center gap-4">
+                    <div class="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/20 text-white shadow-lg">
+                        <i class="fa-solid fa-landmark-flag text-3xl"></i>
+                    </div>
+                    <div>
+                        <span class="text-xs font-bold text-white/80 uppercase tracking-widest block">Instituto Politécnico Nacional</span>
+                        <h1 class="text-3xl font-extrabold text-white tracking-tight flex items-center gap-2 drop-shadow-sm">
+                            Archivo Histórico
+                        </h1>
+                        <p class="text-white/70 text-sm mt-0.5 font-medium">Organiza libros, publicaciones periódicas y documentos fácilmente</p>
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center justify-between md:justify-end gap-4">
+                <div class="bg-white/10 backdrop-blur-md border border-white/20 rounded-xl px-4 py-2.5 flex items-center gap-3 shadow-lg">
+                    <div class="flex h-3 w-3 relative">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                    </div>
+                    <div class="text-xs text-white">
+                        <p class="font-bold">Guardado local activo</p>
+                        <p class="text-white/80" id="estadoGuardado">Los registros se quedan al cerrar el navegador</p>
+                    </div>
+                </div>
+                <img src="cecyt 3 logo.png" alt="Logo CECyT 3" class="h-12 w-12 object-contain bg-white rounded-full p-1.5 shadow-md border border-white/20 shrink-0" onerror="this.style.display='none'">
+            </div>
+        </header>
+        <div class="bg-white/90 backdrop-blur-md p-6 md:p-8 rounded-2xl shadow-2xl shadow-black/10 mb-8 border border-white/60">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 border-b border-stone-100 pb-3">
+                <div class="flex items-center gap-2.5">
+                    <i class="fa-solid fa-folder-plus text-guinda text-xl"></i>
+                    <h2 class="text-xl font-bold text-stone-800">Registrar Nuevo Documento</h2>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <input type="file" id="importarExcel" accept=".xlsx, .xls, .csv" class="hidden" onchange="procesarArchivoExcel(event)">
+                    <input type="file" id="importarJSON" accept=".json" class="hidden" onchange="procesarArchivoJSON(event)">
+                    <button type="button" onclick="document.getElementById('importarExcel').click()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-xl transition-all duration-150 shadow-md text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-file-excel text-base"></i> Importar Excel
+                    </button>
+                    <button type="button" onclick="exportarExcel()" class="bg-emerald-800 hover:bg-emerald-900 text-white font-bold py-2 px-4 rounded-xl transition-all duration-150 shadow-md text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-file-export text-base"></i> Exportar Excel
+                    </button>
+                    <button type="button" onclick="document.getElementById('importarJSON').click()" class="bg-sky-700 hover:bg-sky-800 text-white font-bold py-2 px-4 rounded-xl transition-all duration-150 shadow-md text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-file-import text-base"></i> Importar JSON
+                    </button>
+                    <button type="button" onclick="exportarJSON()" class="bg-sky-900 hover:bg-slate-900 text-white font-bold py-2 px-4 rounded-xl transition-all duration-150 shadow-md text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-floppy-disk text-base"></i> Exportar JSON
+                    </button>
+                    <button type="button" onclick="quitarDuplicados()" class="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-xl transition-all duration-150 shadow-md text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-clone text-base"></i> Quitar Duplicados
+                    </button>
+                    <button type="button" onclick="confirmarBorradoTodo()" class="bg-rose-700 hover:bg-rose-800 text-white font-bold py-2 px-4 rounded-xl transition-all duration-150 shadow-md text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-trash-can text-base"></i> Borrar Todo
+                    </button>
+                </div>
+            </div>
+            <form id="registroForm" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Sección Destino</label>
+                    <select id="formSeccion" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm transition-all duration-150" required>
+                        <option value="museo">🏛️ Museo</option>
+                        <option value="biblioteca">📚 Biblioteca</option>
+                        <option value="historica_escolar">🏫 Histórica Escolar</option>
+                        <option value="historica_personal">👤 Histórica Personal</option>
+                        <option value="fondos_incorporados">📂 Fondos Incorporados</option>
+                        <option value="coleccion_reservada">🔒 Colección Reservada</option>
+                        <option value="fototeca">📷 Fototeca</option>
+                        <option value="impresos_sueltos">📄 Impresos Sueltos</option>
+                        <option value="audiovisual">🔊 Audiovisual</option>
+                        <option value="documental">📝 Documental</option>
+                        <option value="hemeroteca">📰 Hemeroteca</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Fecha o Año</label>
+                    <input type="text" id="formFecha" placeholder="Ej: 1889 o 15/08/1889" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm transition-all duration-150" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Código Único</label>
+                    <input type="text" id="formCodigo" placeholder="Ej: CO - 001" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm transition-all duration-150" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Título / Identificador</label>
+                    <input type="text" id="formTitulo" placeholder="Título o nombre del documento" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm transition-all duration-150" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Autor / Creador</label>
+                    <input type="text" id="formAutor" placeholder="Ej: Torre Valdez / Anónimo" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm transition-all duration-150" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Ubicación (L / E / EÑ)</label>
+                    <input type="text" id="formUbicacion" placeholder="Ej: L01 - E01 - EÑ1" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm transition-all duration-150 font-mono tracking-wider" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Material</label>
+                    <input type="text" id="formMaterial" placeholder="Ej: Papel" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm transition-all duration-150" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Conservación</label>
+                    <select id="formEstado" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm transition-all duration-150" required>
+                        <option value="Excelente">Excelente 👍</option>
+                        <option value="Bueno" selected>Bueno 🙂</option>
+                        <option value="Regular">Regular ⚠️</option>
+                        <option value="Deteriorado">Deteriorado 🚨</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">No. de Unidades</label>
+                    <input type="number" id="formUnidades" placeholder="Ej: 1" min="1" class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm transition-all duration-150">
+                </div>
+                <div class="md:col-span-3">
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Descripción General</label>
+                    <input type="text" id="formDescripcion" placeholder="Escribe aquí la descripción..." class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm transition-all duration-150" required>
+                </div>
+                <div class="md:col-span-4">
+                    <label class="block text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Observaciones</label>
+                    <input type="text" id="formObservaciones" placeholder="Detalles particulares..." class="w-full p-2.5 bg-stone-50/80 border border-stone-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-guinda outline-none text-stone-700 text-sm transition-all duration-150">
+                </div>
+                <div class="lg:col-span-4 flex justify-end mt-2">
+                    <button type="submit" class="w-full md:w-auto bg-guinda hover:bg-guinda-dark text-white font-bold py-3 px-8 rounded-xl transition-all duration-200 shadow-lg shadow-rose-950/20">
+                        <i class="fa-solid fa-check mr-2"></i> Añadir al Inventario
+                    </button>
+                </div>
+            </form>
+        </div>
+        <div class="relative flex items-center mb-6 bg-white/90 backdrop-blur-md p-2 rounded-2xl shadow-lg shadow-black/5 border border-white/60">
+            <button onclick="deslizarTabs('izquierda')" class="absolute left-2 z-10 bg-stone-100 hover:bg-guinda hover:text-white text-stone-600 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-150 shadow-md">
+                <i class="fa-solid fa-chevron-left text-xs"></i>
+            </button>
+            <div id="contenedorTabs" class="flex overflow-x-auto whitespace-nowrap scrollbar-none gap-1.5 px-10 w-full scroll-smooth">
+                <button onclick="cambiarTab('museo')" id="tab-museo" class="px-5 py-3 text-center text-sm font-semibold text-stone-600 hover:text-rose-900 rounded-xl transition-all duration-150 tab-active shrink-0">🏛️ Museo</button>
+                <button onclick="cambiarTab('biblioteca')" id="tab-biblioteca" class="px-5 py-3 text-center text-sm font-semibold text-stone-600 hover:text-rose-900 rounded-xl transition-all duration-150 shrink-0">📚 Biblioteca</button>
+                <button onclick="cambiarTab('historica_escolar')" id="tab-historica_escolar" class="px-5 py-3 text-center text-sm font-semibold text-stone-600 hover:text-rose-900 rounded-xl transition-all duration-150 shrink-0">🏫 Histórica Escolar</button>
+                <button onclick="cambiarTab('historica_personal')" id="tab-historica_personal" class="px-5 py-3 text-center text-sm font-semibold text-stone-600 hover:text-rose-900 rounded-xl transition-all duration-150 shrink-0">👤 Histórica Personal</button>
+                <button onclick="cambiarTab('fondos_incorporados')" id="tab-fondos_incorporados" class="px-5 py-3 text-center text-sm font-semibold text-stone-600 hover:text-rose-900 rounded-xl transition-all duration-150 shrink-0">📂 Fondos Inc.</button>
+                <button onclick="cambiarTab('coleccion_reservada')" id="tab-coleccion_reservada" class="px-5 py-3 text-center text-sm font-semibold text-stone-600 hover:text-rose-900 rounded-xl transition-all duration-150 shrink-0">🔒 Col. Reservada</button>
+                <button onclick="cambiarTab('fototeca')" id="tab-fototeca" class="px-5 py-3 text-center text-sm font-semibold text-stone-600 hover:text-rose-900 rounded-xl transition-all duration-150 shrink-0">📷 Fototeca</button>
+                <button onclick="cambiarTab('impresos_sueltos')" id="tab-impresos_sueltos" class="px-5 py-3 text-center text-sm font-semibold text-stone-600 hover:text-rose-900 rounded-xl transition-all duration-150 shrink-0">📄 Impresos Sueltos</button>
+                <button onclick="cambiarTab('audiovisual')" id="tab-audiovisual" class="px-5 py-3 text-center text-sm font-semibold text-stone-600 hover:text-rose-900 rounded-xl transition-all duration-150 shrink-0">🔊 Audiovisual</button>
+                <button onclick="cambiarTab('documental')" id="tab-documental" class="px-5 py-3 text-center text-sm font-semibold text-stone-600 hover:text-rose-900 rounded-xl transition-all duration-150 shrink-0">📝 Documental</button>
+                <button onclick="cambiarTab('hemeroteca')" id="tab-hemeroteca" class="px-5 py-3 text-center text-sm font-semibold text-stone-600 hover:text-rose-900 rounded-xl transition-all duration-150 shrink-0">📰 Hemeroteca</button>
+            </div>
+            <button onclick="deslizarTabs('derecha')" class="absolute right-2 z-10 bg-stone-100 hover:bg-guinda hover:text-white text-stone-600 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-150 shadow-md">
+                <i class="fa-solid fa-chevron-right text-xs"></i>
+            </button>
+        </div>
+        <div class="mb-6 max-w-md">
+            <div class="relative flex items-center">
+                <i class="fa-solid fa-magnifying-glass absolute left-4 text-stone-400 text-base pointer-events-none"></i>
+                <input type="text" id="inputBuscador" oninput="renderizarTabla()" placeholder="Buscar por código, título o autor..." class="w-full pl-12 pr-4 py-3 bg-white/90 backdrop-blur-md border border-stone-200 rounded-2xl shadow-lg shadow-black/5 focus:border-guinda outline-none text-sm transition-all duration-200" />
+            </div>
+        </div>
+        <div class="bg-white/90 backdrop-blur-md rounded-2xl shadow-2xl shadow-black/5 overflow-hidden border border-white/60">
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-stone-100">
+                    <thead class="bg-stone-50/80 text-stone-500 uppercase text-[11px] font-bold tracking-wider">
+                        <tr>
+                            <th class="px-6 py-4 text-left">Fecha / Año</th>
+                            <th class="px-6 py-4 text-left">Código</th>
+                            <th class="px-6 py-4 text-left">Título / Pieza</th>
+                            <th class="px-6 py-4 text-left">Autor</th>
+                            <th class="px-6 py-4 text-left">Material</th>
+                            <th class="px-6 py-4 text-center">Unidades</th>
+                            <th class="px-6 py-4 text-left">Descripción</th>
+                            <th class="px-6 py-4 text-left">Estado</th>
+                            <th class="px-6 py-4 text-left">Observaciones</th>
+                            <th class="px-6 py-4 text-center">Operaciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tablaCuerpo" class="divide-y divide-stone-100 text-sm"></tbody>
+                </table>
+            </div>
+            <div id="sinDatos" class="hidden text-center py-16 text-stone-400 flex flex-col items-center justify-center gap-2">
+                <i class="fa-regular fa-folder-open text-4xl text-stone-300"></i>
+                <span class="font-medium text-stone-500">No hay registros en esta sección aún.</span>
+                <span class="text-xs text-stone-400">Prueba agregando un nuevo elemento o importando tu Excel.</span>
+            </div>
+        </div>
+    </div>
+    <footer class="container mx-auto px-6 py-8 max-w-7xl border-t border-white/20 mt-12 bg-white/90 backdrop-blur-md rounded-t-2xl shadow-inner">
+        <div class="flex flex-col md:flex-row justify-between items-center gap-6">
+            <div class="flex items-center gap-3">
+                <div class="bg-stone-100 p-2 rounded-xl text-stone-500">
+                    <i class="fa-solid fa-graduation-cap text-xl text-guinda"></i>
+                </div>
+                <div class="text-left">
+                    <p class="text-xs text-stone-400 uppercase font-bold tracking-widest">Soporte Técnico & Control</p>
+                    <p class="text-sm font-semibold text-stone-700">Sistema del Archivo Histórico Escolar</p>
+                </div>
+            </div>
+            <div class="text-center md:text-right flex flex-col gap-1 text-xs select-none">
+                <span class="text-rose-900 font-bold tracking-wide">Maestra Decana M. en C. Libia Zoraida Torres Vargas</span>
+                <span class="text-stone-500 font-semibold">Estanislao Ramirez Ruiz, CECyT No°3</span>
+                <span class="text-stone-400 font-medium italic mt-0.5">Elaboró: Brayan Aldahir Torres Ramón</span>
+            </div>
+        </div>
+    </footer>
+    <script>
+        const CLAVE_STORAGE = 'inventario_datos';
+        const CONTRASENA_BORRADO = '5706';
+        let inventario = [];
+        let tabActual = 'museo';
+        const form = document.getElementById('registroForm');
+        const formEditar = document.getElementById('editarForm');
+        const tablaCuerpo = document.getElementById('tablaCuerpo');
+        const sinDatosDiv = document.getElementById('sinDatos');
+        const inputBuscador = document.getElementById('inputBuscador');
+        const contenedorTabs = document.getElementById('contenedorTabs');
+        const arrayTabs = ['museo', 'biblioteca', 'historica_escolar', 'historica_personal', 'fondos_incorporados', 'coleccion_reservada', 'fototeca', 'impresos_sueltos', 'audiovisual', 'documental', 'hemeroteca'];
+
+        window.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('editSeccion').innerHTML = document.getElementById('formSeccion').innerHTML;
+            document.getElementById('editEstado').innerHTML = document.getElementById('formEstado').innerHTML;
+            document.getElementById('claveInput').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); enviarClave(); }
+                if (e.key === 'Escape') { cancelarClave(); }
+            });
+            cargarInventario();
+            renderizarTabla();
+        });
+
+        /* ---------- Utilidades ---------- */
+        function esc(valor) {
+            return String(valor === undefined || valor === null ? '' : valor)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function normalizar(valor) {
+            return String(valor === undefined || valor === null ? '' : valor)
+                .toLowerCase()
+                .trim()
+                .replace(/\s+/g, ' ');
+        }
+
+        // Dos registros son duplicados si coinciden en sección, código, título, autor, fecha y ubicación
+        function claveDuplicado(item) {
+            return [
+                normalizar(item.seccion),
+                normalizar(item.codigo),
+                normalizar(item.titulo),
+                normalizar(item.autor),
+                normalizar(item.fecha),
+                normalizar(item.ubicacion)
+            ].join('||');
+        }
+
+        function existeDuplicado(candidato, ignorarId) {
+            const clave = claveDuplicado(candidato);
+            return inventario.some(item => item.id !== ignorarId && claveDuplicado(item) === clave);
+        }
+
+        function codigoRepetido(candidato, ignorarId) {
+            const codigo = normalizar(candidato.codigo);
+            if (!codigo || codigo === '-') return false;
+            return inventario.some(item =>
+                item.id !== ignorarId &&
+                item.seccion === candidato.seccion &&
+                normalizar(item.codigo) === codigo
+            );
+        }
+
+        /* ---------- Contraseña ---------- */
+        let resolverClave = null;
+
+        function pedirContrasena(texto) {
+            return new Promise(resolve => {
+                resolverClave = resolve;
+                document.getElementById('claveTexto').textContent = texto || 'Escribe la contraseña para continuar.';
+                document.getElementById('claveInput').value = '';
+                document.getElementById('claveError').classList.add('hidden');
+                const modal = document.getElementById('modalClave');
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                setTimeout(() => document.getElementById('claveInput').focus(), 50);
+            });
+        }
+
+        function cerrarModalClave() {
+            const modal = document.getElementById('modalClave');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function enviarClave() {
+            const input = document.getElementById('claveInput');
+            if (input.value === CONTRASENA_BORRADO) {
+                cerrarModalClave();
+                if (resolverClave) resolverClave(true);
+                resolverClave = null;
+            } else {
+                document.getElementById('claveError').classList.remove('hidden');
+                input.value = '';
+                input.focus();
+            }
+        }
+
+        function cancelarClave() {
+            cerrarModalClave();
+            if (resolverClave) resolverClave(false);
+            resolverClave = null;
+        }
+
+        /* ---------- Guardado ---------- */
+        function actualizarEstadoGuardado(ok, extra) {
+            const el = document.getElementById('estadoGuardado');
+            if (!el) return;
+            if (ok) {
+                el.textContent = extra || (inventario.length + ' registros guardados en este navegador');
+            } else {
+                el.textContent = extra || 'No se pudo guardar. Exporta JSON ahora.';
+            }
+        }
+        function limpiarHashURL() {
+            if (window.location.hash) {
+                history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
+        }
+        function leerHashInventario() {
+            const hash = window.location.hash;
+            if (!hash || !hash.startsWith('#data=')) return null;
+            try {
+                const base64Data = hash.substring(6);
+                const jsonString = decodeURIComponent(escape(atob(base64Data)));
+                const datos = JSON.parse(jsonString);
+                return Array.isArray(datos) ? datos : null;
+            } catch (e) {
+                return null;
+            }
+        }
+        function cargarInventario() {
+            try {
+                const raw = localStorage.getItem(CLAVE_STORAGE);
+                inventario = raw ? JSON.parse(raw) : [];
+                if (!Array.isArray(inventario)) inventario = [];
+            } catch (e) {
+                inventario = [];
+                alert('No se pudo leer el inventario guardado. Si tienes un respaldo JSON, impórtalo.');
+            }
+            const desdeURL = leerHashInventario();
+            if (desdeURL && desdeURL.length > inventario.length) {
+                if (confirm('Hay más registros en la URL que en el guardado local.\n\n¿Quieres recuperar los de la URL? (si la barra de direcciones está cortada, puede faltar información)')) {
+                    inventario = desdeURL;
+                    guardarInventario();
+                }
+            }
+            limpiarHashURL();
+            actualizarEstadoGuardado(true);
+        }
+        function guardarInventario() {
+            try {
+                localStorage.setItem(CLAVE_STORAGE, JSON.stringify(inventario));
+                limpiarHashURL();
+                actualizarEstadoGuardado(true);
+                return true;
+            } catch (e) {
+                actualizarEstadoGuardado(false);
+                alert('No se pudo guardar el inventario (el navegador se quedó sin espacio).\n\nExporta JSON o Excel ahora para no perder datos.');
+                return false;
+            }
+        }
+        function descargarArchivo(nombre, contenido, tipo) {
+            const blob = new Blob([contenido], { type: tipo });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = nombre;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        /* ---------- JSON ---------- */
+        function exportarJSON() {
+            const fecha = new Date().toISOString().slice(0, 10);
+            descargarArchivo(
+                'inventario-archivo-historico-' + fecha + '.json',
+                JSON.stringify(inventario, null, 2),
+                'application/json'
+            );
+            alert('Respaldo JSON descargado. Guárdalo en una carpeta segura.');
+        }
+        function procesarArchivoJSON(event) {
+            const archivo = event.target.files[0];
+            if (!archivo) return;
+            const lector = new FileReader();
+            lector.onload = function(e) {
+                try {
+                    const datos = JSON.parse(e.target.result);
+                    if (!Array.isArray(datos)) throw new Error('Formato inválido');
+                    const reemplazar = confirm('¿Reemplazar el inventario actual por este archivo?\n\nAceptar = reemplazar todo\nCancelar = agregar sin borrar lo que ya tienes');
+                    let omitidos = 0;
+                    const base = reemplazar ? [] : inventario.slice();
+                    const claves = new Set(base.map(claveDuplicado));
+                    const ids = new Set(base.map(item => item.id));
+                    datos.forEach(item => {
+                        if (!item || typeof item !== 'object') return;
+                        const clave = claveDuplicado(item);
+                        if (claves.has(clave) || ids.has(item.id)) {
+                            omitidos++;
+                            return;
+                        }
+                        claves.add(clave);
+                        ids.add(item.id);
+                        base.push(item);
+                    });
+                    inventario = base;
+                    guardarInventario();
+                    renderizarTabla();
+                    let msg = 'JSON importado. Hay ' + inventario.length + ' registros.';
+                    if (omitidos > 0) msg += '\n' + omitidos + ' registro(s) duplicado(s) se omitieron.';
+                    alert(msg);
+                } catch (err) {
+                    alert('Ese archivo JSON no es válido.');
+                }
+                event.target.value = '';
+            };
+            lector.readAsText(archivo);
+        }
+
+        /* ---------- Excel ---------- */
+        function exportarExcel() {
+            if (!inventario.length) {
+                alert('No hay registros para exportar.');
+                return;
+            }
+            const filas = inventario.map(item => ({
+                Ubicacion: item.ubicacion,
+                Seccion: item.seccion,
+                Material: item.material,
+                Codigo: item.codigo,
+                Titulo: item.titulo,
+                Autor: item.autor,
+                Fecha: item.fecha,
+                Unidades: item.unidades,
+                Descripcion: item.descripcion,
+                Observaciones: item.observaciones,
+                Estado: item.estado
+            }));
+            const hoja = XLSX.utils.json_to_sheet(filas);
+            const libro = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(libro, hoja, 'Inventario');
+            const fecha = new Date().toISOString().slice(0, 10);
+            XLSX.writeFile(libro, 'inventario-archivo-historico-' + fecha + '.xlsx');
+        }
+        function cerrarBienvenida() {
+            document.getElementById('splashScreen').classList.add('splash-hidden');
+        }
+        function deslizarTabs(direccion) {
+            const distancia = 220;
+            contenedorTabs.scrollLeft += (direccion === 'izquierda' ? -distancia : distancia);
+        }
+        function obtenerTimestamp(fechaStr) {
+            if (!fechaStr || fechaStr === '-') return Infinity;
+            const str = fechaStr.toString().trim();
+            let partes = str.split('/');
+            if (partes.length === 3) {
+                return new Date(partes[2], partes[1] - 1, partes[0]).getTime();
+            }
+            partes = str.split('-');
+            if (partes.length === 3 && partes[0].length === 4) {
+                return new Date(partes[0], partes[1] - 1, partes[2]).getTime();
+            }
+            const anioMatch = str.match(/\d{4}/);
+            if (anioMatch) {
+                return new Date(anioMatch[0], 0, 1).getTime();
+            }
+            return Infinity;
+        }
+        function procesarArchivoExcel(event) {
+            const archivo = event.target.files[0];
+            if (!archivo) return;
+            const lector = new FileReader();
+            lector.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                let nuevosRegistros = 0;
+                let duplicados = 0;
+                const clavesExistentes = new Set(inventario.map(claveDuplicado));
+                workbook.SheetNames.forEach((sheetName, indexSheet) => {
+                    const worksheet = workbook.Sheets[sheetName];
+                    const matrizFilas = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+                    if (matrizFilas.length < 2) return;
+                    const esBiblioteca = sheetName.toLowerCase().includes('biblioteca') || indexSheet === 1;
+                    for (let i = 1; i < matrizFilas.length; i++) {
+                        const fila = matrizFilas[i];
+                        if (!fila || fila.length === 0 || fila.every(val => String(val).trim() === "")) continue;
+                        const val = (idx) => fila[idx] !== undefined ? String(fila[idx]).trim() : '';
+                        let ubicacion = '-', seccionExcel = '-', material = '-', unidadFisica = '-';
+                        let codigo = '-', titulo = '-', autor = '-', fecha = '-', descrip = '-', unidades = '-', obs = '-';
+                        if (!esBiblioteca) {
+                            ubicacion = val(0) || '-';
+                            seccionExcel = val(1) || 'museo';
+                            material = val(2) || '-';
+                            unidadFisica = val(3) || '-';
+                            codigo = val(4) || '-';
+                            titulo = val(5) || '-';
+                            autor = val(6) || '-';
+                            fecha = val(7) || '-';
+                            obs = val(8) || '-';
+                            descrip = unidadFisica;
+                        } else {
+                            ubicacion = val(0) || '-';
+                            seccionExcel = val(1) || 'biblioteca';
+                            material = val(2) || '-';
+                            unidadFisica = val(3) || '-';
+                            codigo = val(4) || '-';
+                            titulo = val(5) || '-';
+                            autor = val(6) || '-';
+                            fecha = val(7) || '-';
+                            descrip = val(8) || '-';
+                            unidades = val(9) || '-';
+                            obs = unidadFisica !== '-' ? unidadFisica : '-';
+                        }
+                        let seccionFinal = esBiblioteca ? 'biblioteca' : 'museo';
+                        const secLower = seccionExcel.toLowerCase();
+                        arrayTabs.forEach(tab => {
+                            if (secLower.includes(tab) || tab.includes(secLower)) seccionFinal = tab;
+                        });
+                        const nuevo = {
+                            id: Date.now() + Math.random(),
+                            seccion: seccionFinal,
+                            fecha: fecha || '-',
+                            codigo: codigo || '-',
+                            titulo: titulo || '-',
+                            autor: autor || '-',
+                            ubicacion: ubicacion || '-',
+                            material: material || '-',
+                            estado: 'Bueno',
+                            unidades: unidades || '-',
+                            descripcion: descrip || '-',
+                            observaciones: obs || '-'
+                        };
+                        const clave = claveDuplicado(nuevo);
+                        if (clavesExistentes.has(clave)) {
+                            duplicados++;
+                            continue;
+                        }
+                        clavesExistentes.add(clave);
+                        inventario.push(nuevo);
+                        nuevosRegistros++;
+                    }
+                });
+                if (nuevosRegistros > 0) {
+                    guardarInventario();
+                    renderizarTabla();
+                }
+                if (nuevosRegistros > 0 || duplicados > 0) {
+                    let msg = 'Se cargaron ' + nuevosRegistros + ' registros.';
+                    if (duplicados > 0) msg += '\n' + duplicados + ' registro(s) duplicado(s) se omitieron.';
+                    alert(msg);
+                } else {
+                    alert('No se encontraron registros válidos para importar.');
+                }
+                document.getElementById('importarExcel').value = '';
+            };
+            lector.readAsArrayBuffer(archivo);
+        }
+
+        /* ---------- Alta de registros ---------- */
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const unidadesInput = document.getElementById('formUnidades').value;
+            const nuevoRegistro = {
+                id: Date.now(),
+                seccion: document.getElementById('formSeccion').value,
+                fecha: document.getElementById('formFecha').value.trim(),
+                codigo: document.getElementById('formCodigo').value.trim(),
+                titulo: document.getElementById('formTitulo').value.trim(),
+                autor: document.getElementById('formAutor').value.trim(),
+                ubicacion: document.getElementById('formUbicacion').value.trim(),
+                material: document.getElementById('formMaterial').value.trim(),
+                estado: document.getElementById('formEstado').value,
+                unidades: unidadesInput.trim() !== '' ? unidadesInput : '-',
+                descripcion: document.getElementById('formDescripcion').value.trim(),
+                observaciones: document.getElementById('formObservaciones').value.trim() || 'Ninguna'
+            };
+            if (existeDuplicado(nuevoRegistro, null)) {
+                alert('Este registro ya existe en el inventario (misma sección, código, título, autor, fecha y ubicación).\n\nNo se agregó para evitar duplicados.');
+                return;
+            }
+            if (codigoRepetido(nuevoRegistro, null)) {
+                if (!confirm('Ya existe otro registro con el código "' + nuevoRegistro.codigo + '" en esta sección.\n\nEl código debería ser único. ¿Quieres agregarlo de todos modos?')) {
+                    return;
+                }
+            }
+            inventario.push(nuevoRegistro);
+            guardarInventario();
+            inputBuscador.value = '';
+            cambiarTab(nuevoRegistro.seccion);
+            form.reset();
+        });
+
+        /* ---------- Edición ---------- */
+        function abrirEdicion(id) {
+            const item = inventario.find(r => r.id === id);
+            if (!item) return;
+            document.getElementById('editId').value = String(item.id);
+            document.getElementById('editSeccion').value = item.seccion;
+            document.getElementById('editFecha').value = item.fecha === '-' ? '' : item.fecha;
+            document.getElementById('editCodigo').value = item.codigo === '-' ? '' : item.codigo;
+            document.getElementById('editTitulo').value = item.titulo === '-' ? '' : item.titulo;
+            document.getElementById('editAutor').value = item.autor === '-' ? '' : item.autor;
+            document.getElementById('editUbicacion').value = item.ubicacion === '-' ? '' : item.ubicacion;
+            document.getElementById('editMaterial').value = item.material === '-' ? '' : item.material;
+            document.getElementById('editEstado').value = item.estado || 'Bueno';
+            document.getElementById('editUnidades').value = (item.unidades === '-' || item.unidades === undefined) ? '' : item.unidades;
+            document.getElementById('editDescripcion').value = item.descripcion === '-' ? '' : item.descripcion;
+            document.getElementById('editObservaciones').value = (item.observaciones === '-' || item.observaciones === 'Ninguna') ? '' : item.observaciones;
+            const modal = document.getElementById('modalEditar');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function cerrarEdicion() {
+            const modal = document.getElementById('modalEditar');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        formEditar.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const idTexto = document.getElementById('editId').value;
+            const item = inventario.find(r => String(r.id) === idTexto);
+            if (!item) { cerrarEdicion(); return; }
+            const unidadesInput = document.getElementById('editUnidades').value;
+            const actualizado = {
+                id: item.id,
+                seccion: document.getElementById('editSeccion').value,
+                fecha: document.getElementById('editFecha').value.trim(),
+                codigo: document.getElementById('editCodigo').value.trim(),
+                titulo: document.getElementById('editTitulo').value.trim(),
+                autor: document.getElementById('editAutor').value.trim(),
+                ubicacion: document.getElementById('editUbicacion').value.trim(),
+                material: document.getElementById('editMaterial').value.trim(),
+                estado: document.getElementById('editEstado').value,
+                unidades: unidadesInput.trim() !== '' ? unidadesInput : '-',
+                descripcion: document.getElementById('editDescripcion').value.trim(),
+                observaciones: document.getElementById('editObservaciones').value.trim() || 'Ninguna'
+            };
+            if (existeDuplicado(actualizado, item.id)) {
+                alert('Ya existe otro registro igual (misma sección, código, título, autor, fecha y ubicación).\n\nNo se guardaron los cambios para evitar duplicados.');
+                return;
+            }
+            if (codigoRepetido(actualizado, item.id)) {
+                if (!confirm('Ya existe otro registro con el código "' + actualizado.codigo + '" en esta sección.\n\nEl código debería ser único. ¿Guardar de todos modos?')) {
+                    return;
+                }
+            }
+            Object.assign(item, actualizado);
+            guardarInventario();
+            cerrarEdicion();
+            cambiarTab(item.seccion);
+        });
+
+        /* ---------- Tabs y tabla ---------- */
+        function cambiarTab(seccion) {
+            tabActual = seccion;
+            arrayTabs.forEach(tab => {
+                const element = document.getElementById('tab-' + tab);
+                if (element) {
+                    element.classList.toggle('tab-active', tab === seccion);
+                }
+            });
+            renderizarTabla();
+        }
+        function renderizarTabla() {
+            const busqueda = inputBuscador.value.toLowerCase().trim();
+            tablaCuerpo.innerHTML = '';
+            const filtrados = inventario.filter(item => {
+                const coincideTab = item.seccion === tabActual;
+                const coincideBusqueda = !busqueda ||
+                    (item.codigo && String(item.codigo).toLowerCase().includes(busqueda)) ||
+                    (item.titulo && String(item.titulo).toLowerCase().includes(busqueda)) ||
+                    (item.autor && String(item.autor).toLowerCase().includes(busqueda)) ||
+                    (item.ubicacion && String(item.ubicacion).toLowerCase().includes(busqueda));
+                return coincideTab && coincideBusqueda;
+            });
+            if (filtrados.length === 0) {
+                sinDatosDiv.classList.remove('hidden');
+            } else {
+                sinDatosDiv.classList.add('hidden');
+                const gruposUbicacion = {};
+                filtrados.forEach(item => {
+                    const ubi = item.ubicacion || 'Sin Ubicación Especial';
+                    if (!gruposUbicacion[ubi]) gruposUbicacion[ubi] = [];
+                    gruposUbicacion[ubi].push(item);
+                });
+                Object.keys(gruposUbicacion).forEach(ubi => {
+                    gruposUbicacion[ubi].sort((a, b) => obtenerTimestamp(a.fecha) - obtenerTimestamp(b.fecha));
+                    const filaHeader = document.createElement('tr');
+                    filaHeader.className = 'bg-stone-200/60 border-t-2 border-b border-stone-300';
+                    filaHeader.innerHTML = `
+                        <td colspan="10" class="px-6 py-3 font-bold text-stone-800 text-xs uppercase tracking-wider">
+                            <i class="fa-solid fa-location-dot text-guinda mr-2"></i>
+                            Ubicación: <span class="font-mono text-sm font-extrabold text-guinda bg-white px-2 py-0.5 rounded border border-stone-300 ml-1">${esc(ubi)}</span>
+                            <span class="text-stone-500 text-xs font-normal ml-3">(${gruposUbicacion[ubi].length} elementos ordenados por fecha)</span>
+                        </td>
+                    `;
+                    tablaCuerpo.appendChild(filaHeader);
+                    gruposUbicacion[ubi].forEach(item => {
+                        const tr = document.createElement('tr');
+                        tr.className = 'hover:bg-stone-50/80 transition-colors duration-150';
+                        tr.innerHTML = `
+                            <td class="px-6 py-4 font-medium text-stone-600 whitespace-nowrap">${esc(item.fecha)}</td>
+                            <td class="px-6 py-4 font-mono font-bold text-guinda whitespace-nowrap">${esc(item.codigo)}</td>
+                            <td class="px-6 py-4 font-semibold text-stone-800">${esc(item.titulo)}</td>
+                            <td class="px-6 py-4 text-stone-600">${esc(item.autor)}</td>
+                            <td class="px-6 py-4 text-stone-600 whitespace-nowrap">${esc(item.material)}</td>
+                            <td class="px-6 py-4 text-center font-bold text-stone-700">${esc(item.unidades)}</td>
+                            <td class="px-6 py-4 text-stone-600 max-w-xs truncate" title="${esc(item.descripcion)}">${esc(item.descripcion)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${esc(item.estado)}</td>
+                            <td class="px-6 py-4 text-stone-500 italic max-w-xs truncate" title="${esc(item.observaciones)}">${esc(item.observaciones)}</td>
+                            <td class="px-6 py-4 text-center whitespace-nowrap">
+                                <button onclick="abrirEdicion(${item.id})" title="Editar" class="text-sky-700 hover:text-sky-900 p-2 rounded-lg hover:bg-sky-50 transition-colors">
+                                    <i class="fa-solid fa-pen"></i>
+                                </button>
+                                <button onclick="eliminarRegistro(${item.id})" title="Eliminar" class="text-rose-600 hover:text-rose-800 p-2 rounded-lg hover:bg-rose-50 transition-colors">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
+                            </td>
+                        `;
+                        tablaCuerpo.appendChild(tr);
+                    });
+                    const filaEspacio = document.createElement('tr');
+                    filaEspacio.innerHTML = '<td colspan="10" class="h-4 bg-transparent"></td>';
+                    tablaCuerpo.appendChild(filaEspacio);
+                });
+            }
+        }
+
+        /* ---------- Borrado (con contraseña) ---------- */
+        async function eliminarRegistro(id) {
+            const autorizado = await pedirContrasena('Escribe la contraseña para eliminar este registro.');
+            if (!autorizado) return;
+            if (confirm('¿Estás seguro de eliminar este registro?')) {
+                inventario = inventario.filter(item => item.id !== id);
+                guardarInventario();
+                renderizarTabla();
+            }
+        }
+        async function confirmarBorradoTodo() {
+            const autorizado = await pedirContrasena('Escribe la contraseña para borrar TODOS los registros.');
+            if (!autorizado) return;
+            if (confirm('¿ATENCIÓN: vas a eliminar TODOS los registros?\n\nExporta JSON antes si no quieres perderlos.')) {
+                inventario = [];
+                guardarInventario();
+                renderizarTabla();
+            }
+        }
+        async function quitarDuplicados() {
+            const claves = new Set();
+            const unicos = [];
+            inventario.forEach(item => {
+                const clave = claveDuplicado(item);
+                if (!claves.has(clave)) {
+                    claves.add(clave);
+                    unicos.push(item);
+                }
+            });
+            const sobrantes = inventario.length - unicos.length;
+            if (sobrantes === 0) {
+                alert('No se encontraron registros duplicados.');
+                return;
+            }
+            const autorizado = await pedirContrasena('Escribe la contraseña para eliminar ' + sobrantes + ' duplicado(s).');
+            if (!autorizado) return;
+            if (confirm('Se eliminarán ' + sobrantes + ' registro(s) duplicado(s) y se conservará el primero de cada grupo.\n\n¿Continuar?')) {
+                inventario = unicos;
+                guardarInventario();
+                renderizarTabla();
+                alert('Listo. Se eliminaron ' + sobrantes + ' duplicado(s).');
+            }
+        }
+    </script>
+</body>
+</html>
