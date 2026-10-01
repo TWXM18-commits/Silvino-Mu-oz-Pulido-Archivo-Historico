@@ -354,11 +354,71 @@
             </div>
         </div>
     </footer>
+    <script type="module">
+        // =====================================================
+        //  CONFIGURACIÓN DE FIREBASE (pega aquí tus datos)
+        //  Consola de Firebase > Configuración del proyecto > Tus apps > App web
+        // =====================================================
+        const FIREBASE_CONFIG = {
+            apiKey: "AIzaSyAA1Qz9QacD82cfFbTtWReAitqrmxk1Yu0",
+            authDomain: "archivohistorico-6e8b1.firebaseapp.com",
+            projectId: "archivohistorico-6e8b1",
+            storageBucket: "archivohistorico-6e8b1.firebasestorage.app",
+            messagingSenderId: "397531118322",
+            appId: "1:397531118322:web:31d2549b954484be3d2e6b"
+        };
+
+        const configurado = FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.startsWith("PEGA");
+        if (configurado) {
+            try {
+                const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+                const fs = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+                const app = initializeApp(FIREBASE_CONFIG);
+                let db;
+                try {
+                    db = fs.initializeFirestore(app, {
+                        localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() })
+                    });
+                } catch (e) {
+                    db = fs.getFirestore(app);
+                }
+                const col = fs.collection(db, 'inventario');
+                const docId = (id) => String(id).replace(/[\/.]/g, '_');
+                window.nubeApi = {
+                    escuchar(onDatos, onError) {
+                        return fs.onSnapshot(col, { includeMetadataChanges: true }, (snap) => {
+                            onDatos(snap.docs.map(d => d.data()), snap.metadata.fromCache);
+                        }, onError);
+                    },
+                    async aplicar(upserts, borrar) {
+                        const ops = [
+                            ...upserts.map(item => ({ tipo: 'set', id: docId(item.id), item })),
+                            ...borrar.map(id => ({ tipo: 'del', id: docId(id) }))
+                        ];
+                        for (let i = 0; i < ops.length; i += 400) {
+                            const batch = fs.writeBatch(db);
+                            ops.slice(i, i + 400).forEach(op => {
+                                const ref = fs.doc(db, 'inventario', op.id);
+                                if (op.tipo === 'set') batch.set(ref, op.item);
+                                else batch.delete(ref);
+                            });
+                            await batch.commit();
+                        }
+                    }
+                };
+                window.dispatchEvent(new Event('nube-lista'));
+            } catch (e) {
+                console.error('No se pudo iniciar Firebase:', e);
+            }
+        }
+    </script>
     <script>
         const CLAVE_STORAGE = 'inventario_datos';
         const CONTRASENA_BORRADO = '5706';
         let inventario = [];
         let tabActual = 'museo';
+        let mapaSync = new Map();
+        let sincronizacionInicial = false;
         const form = document.getElementById('registroForm');
         const formEditar = document.getElementById('editarForm');
         const tablaCuerpo = document.getElementById('tablaCuerpo');
@@ -376,6 +436,7 @@
             });
             cargarInventario();
             renderizarTabla();
+            iniciarNube();
         });
 
         /* ---------- Utilidades ---------- */
@@ -463,12 +524,81 @@
             resolverClave = null;
         }
 
+
+        /* ---------- Sincronización en la nube (Firebase) ---------- */
+        function canon(item) {
+            return JSON.stringify(Object.keys(item).sort().map(k => [k, item[k]]));
+        }
+
+        function sincronizarNube() {
+            if (!window.nubeApi) return;
+            const actual = new Map();
+            inventario.forEach(item => {
+                if (item.id === undefined || item.id === null) item.id = Date.now() + Math.random();
+                actual.set(String(item.id), item);
+            });
+            const upserts = [];
+            const borrar = [];
+            actual.forEach((item, id) => {
+                if (mapaSync.get(id) !== canon(item)) upserts.push(JSON.parse(JSON.stringify(item)));
+            });
+            mapaSync.forEach((_, id) => {
+                if (!actual.has(id)) borrar.push(id);
+            });
+            if (!upserts.length && !borrar.length) return;
+            window.nubeApi.aplicar(upserts, borrar).catch(err => {
+                console.error(err);
+                actualizarEstadoGuardado(false, 'Error al subir a la nube. Revisa tu conexión y las reglas de Firebase.');
+            });
+        }
+
+        function aplicarDatosNube(items) {
+            inventario = items;
+            mapaSync = new Map(items.map(i => [String(i.id), canon(i)]));
+            try { localStorage.setItem(CLAVE_STORAGE, JSON.stringify(inventario)); } catch (e) {}
+            renderizarTabla();
+            actualizarEstadoGuardado(true);
+        }
+
+        let nubeIniciada = false;
+        window.addEventListener('nube-lista', () => iniciarNube());
+
+        function iniciarNube() {
+            if (!window.nubeApi || nubeIniciada) return;
+            nubeIniciada = true;
+            actualizarEstadoGuardado(true, 'Conectando con la nube...');
+            window.nubeApi.escuchar((items, desdeCache) => {
+                if (!sincronizacionInicial) {
+                    // Esperamos la primera respuesta real del servidor
+                    if (desdeCache) return;
+                    sincronizacionInicial = true;
+                    const locales = inventario.slice();
+                    const clavesNube = new Set(items.map(claveDuplicado));
+                    const idsNube = new Set(items.map(i => String(i.id)));
+                    const faltantes = locales.filter(l => !clavesNube.has(claveDuplicado(l)) && !idsNube.has(String(l.id)));
+                    aplicarDatosNube(items);
+                    if (faltantes.length > 0 && confirm('Este dispositivo tiene ' + faltantes.length + ' registro(s) que todavía no están en la nube.\n\n¿Quieres subirlos para que se vean en todos los dispositivos?')) {
+                        inventario = inventario.concat(faltantes);
+                        guardarInventario();
+                        renderizarTabla();
+                    }
+                    return;
+                }
+                aplicarDatosNube(items);
+            }, (err) => {
+                console.error(err);
+                actualizarEstadoGuardado(false, 'Sin conexión a la nube (modo local). Revisa las reglas de Firebase.');
+            });
+        }
+
         /* ---------- Guardado ---------- */
         function actualizarEstadoGuardado(ok, extra) {
             const el = document.getElementById('estadoGuardado');
             if (!el) return;
             if (ok) {
-                el.textContent = extra || (inventario.length + ' registros guardados en este navegador');
+                el.textContent = extra || (window.nubeApi
+                    ? '☁️ Sincronizado en la nube · ' + inventario.length + ' registros'
+                    : inventario.length + ' registros guardados en este navegador (sin nube)');
             } else {
                 el.textContent = extra || 'No se pudo guardar. Exporta JSON ahora.';
             }
@@ -510,6 +640,7 @@
             actualizarEstadoGuardado(true);
         }
         function guardarInventario() {
+            sincronizarNube();
             try {
                 localStorage.setItem(CLAVE_STORAGE, JSON.stringify(inventario));
                 limpiarHashURL();
@@ -556,6 +687,7 @@
                     const ids = new Set(base.map(item => item.id));
                     datos.forEach(item => {
                         if (!item || typeof item !== 'object') return;
+                        if (item.id === undefined || item.id === null) item.id = Date.now() + Math.random();
                         const clave = claveDuplicado(item);
                         if (claves.has(clave) || ids.has(item.id)) {
                             omitidos++;
