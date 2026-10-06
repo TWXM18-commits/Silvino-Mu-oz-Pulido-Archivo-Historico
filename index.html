@@ -306,7 +306,7 @@
         <div class="mb-6 max-w-md">
             <div class="relative flex items-center">
                 <i class="fa-solid fa-magnifying-glass absolute left-4 text-stone-400 text-base pointer-events-none"></i>
-                <input type="text" id="inputBuscador" oninput="renderizarTabla()" placeholder="Buscar por código, título o autor..." class="w-full pl-12 pr-4 py-3 bg-white/90 backdrop-blur-md border border-stone-200 rounded-2xl shadow-lg shadow-black/5 focus:border-guinda outline-none text-sm transition-all duration-200" />
+                <input type="text" id="inputBuscador" oninput="buscarConRetardo()" placeholder="Buscar por título, autor, código, tema o descripción..." class="w-full pl-12 pr-4 py-3 bg-white/90 backdrop-blur-md border border-stone-200 rounded-2xl shadow-lg shadow-black/5 focus:border-guinda outline-none text-sm transition-all duration-200" />
             </div>
         </div>
         <div class="bg-white/90 backdrop-blur-md rounded-2xl shadow-2xl shadow-black/5 overflow-hidden border border-white/60">
@@ -953,6 +953,7 @@
         /* ---------- Tabs y tabla ---------- */
         function cambiarTab(seccion) {
             tabActual = seccion;
+            if (inputBuscador.value) inputBuscador.value = '';
             arrayTabs.forEach(tab => {
                 const element = document.getElementById('tab-' + tab);
                 if (element) {
@@ -961,18 +962,181 @@
             });
             renderizarTabla();
         }
-        function renderizarTabla() {
-            const busqueda = inputBuscador.value.toLowerCase().trim();
-            tablaCuerpo.innerHTML = '';
-            const filtrados = inventario.filter(item => {
-                const coincideTab = item.seccion === tabActual;
-                const coincideBusqueda = !busqueda ||
-                    (item.codigo && String(item.codigo).toLowerCase().includes(busqueda)) ||
-                    (item.titulo && String(item.titulo).toLowerCase().includes(busqueda)) ||
-                    (item.autor && String(item.autor).toLowerCase().includes(busqueda)) ||
-                    (item.ubicacion && String(item.ubicacion).toLowerCase().includes(busqueda));
-                return coincideTab && coincideBusqueda;
+        /* ---------- Búsqueda inteligente ---------- */
+        const NOMBRES_SECCION = {
+            museo: '🏛️ Museo', biblioteca: '📚 Biblioteca', historica_escolar: '🏫 Histórica Escolar',
+            historica_personal: '👤 Histórica Personal', fondos_incorporados: '📂 Fondos Incorporados',
+            coleccion_reservada: '🔒 Colección Reservada', fototeca: '📷 Fototeca',
+            impresos_sueltos: '📄 Impresos Sueltos', audiovisual: '🔊 Audiovisual',
+            documental: '📝 Documental', hemeroteca: '📰 Hemeroteca'
+        };
+        const PALABRAS_VACIAS = new Set(['de','del','la','el','los','las','un','una','unos','unas','y','e','o','en','con','por','para','que','sobre','trata','trate','tratan','libro','libros','documento','documentos','algo','acerca','hay','tiene']);
+        const CAMPOS_BUSQUEDA = [
+            ['titulo', 3], ['autor', 2], ['codigo', 3], ['descripcion', 1.5],
+            ['observaciones', 1], ['material', 1], ['ubicacion', 1], ['fecha', 1]
+        ];
+
+        function normalizarBusqueda(texto) {
+            return String(texto === undefined || texto === null ? '' : texto)
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9\s]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function distanciaEdicion(a, b) {
+            const la = a.length, lb = b.length;
+            if (!la) return lb;
+            if (!lb) return la;
+            let prev2 = null;
+            let prev = [];
+            for (let j = 0; j <= lb; j++) prev[j] = j;
+            for (let i = 1; i <= la; i++) {
+                const cur = [i];
+                for (let j = 1; j <= lb; j++) {
+                    const costo = a[i - 1] === b[j - 1] ? 0 : 1;
+                    let v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + costo);
+                    if (prev2 && i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+                        v = Math.min(v, prev2[j - 2] + 1);
+                    }
+                    cur[j] = v;
+                }
+                prev2 = prev;
+                prev = cur;
+            }
+            return prev[lb];
+        }
+
+        function toleranciaErrores(longitud) {
+            if (longitud <= 3) return 0;
+            if (longitud <= 5) return 1;
+            return 2;
+        }
+
+        // Calidad (0 a 1) con la que una palabra buscada coincide con un campo
+        function calidadCoincidencia(palabra, campoNorm) {
+            if (!campoNorm) return 0;
+            const tokens = campoNorm.split(' ');
+            if (palabra.length <= 2) {
+                return tokens.some(t => t.startsWith(palabra)) ? 1 : 0;
+            }
+            if (campoNorm.includes(palabra)) return 1;
+            if (campoNorm.replace(/ /g, '').includes(palabra)) return 0.95;
+            const tol = toleranciaErrores(palabra.length);
+            if (tol === 0) return 0;
+            let mejor = 0;
+            for (const t of tokens) {
+                if (Math.abs(t.length - palabra.length) <= tol) {
+                    const d = distanciaEdicion(palabra, t);
+                    if (d <= tol) mejor = Math.max(mejor, (1 - d / palabra.length) * 0.85);
+                }
+                if (t.length > palabra.length) {
+                    // por si el usuario escribió solo el inicio de la palabra y con algún error
+                    const d2 = distanciaEdicion(palabra, t.slice(0, palabra.length));
+                    if (d2 <= tol) mejor = Math.max(mejor, (1 - d2 / palabra.length) * 0.75);
+                }
+            }
+            return mejor;
+        }
+
+        function buscarDifuso(consulta) {
+            const normal = normalizarBusqueda(consulta);
+            let palabras = normal.split(' ').filter(Boolean);
+            const utiles = palabras.filter(p => !PALABRAS_VACIAS.has(p));
+            if (utiles.length) palabras = utiles;
+            if (!palabras.length) return { resultados: [], parcial: false };
+
+            const evaluados = [];
+            inventario.forEach(item => {
+                const campos = CAMPOS_BUSQUEDA.map(([campo, peso]) => [normalizarBusqueda(item[campo]), peso]);
+                let total = 0;
+                let encontradas = 0;
+                palabras.forEach(pal => {
+                    let mejor = 0;
+                    campos.forEach(([texto, peso]) => {
+                        const q = calidadCoincidencia(pal, texto);
+                        if (q > 0) mejor = Math.max(mejor, q * peso);
+                    });
+                    if (mejor > 0) { total += mejor; encontradas++; }
+                });
+                if (encontradas > 0) {
+                    evaluados.push({ item, score: total, completo: encontradas === palabras.length });
+                }
             });
+
+            const completos = evaluados.filter(r => r.completo);
+            const lista = completos.length ? completos : evaluados;
+            lista.sort((a, b) => b.score - a.score || obtenerTimestamp(a.item.fecha) - obtenerTimestamp(b.item.fecha));
+            return { resultados: lista.slice(0, 300), parcial: !completos.length && lista.length > 0 };
+        }
+
+        let temporizadorBusqueda = null;
+        function buscarConRetardo() {
+            clearTimeout(temporizadorBusqueda);
+            temporizadorBusqueda = setTimeout(renderizarTabla, 150);
+        }
+
+        function filaRegistro(item, mostrarSeccion) {
+            const tr = document.createElement('tr');
+            tr.className = 'hover:bg-stone-50/80 transition-colors duration-150';
+            const etiquetaSeccion = mostrarSeccion
+                ? `<span class="block text-[10px] font-bold text-guinda bg-rose-50 border border-rose-100 rounded-full px-2 py-0.5 mb-1 w-fit">${esc(NOMBRES_SECCION[item.seccion] || item.seccion)}</span>`
+                : '';
+            tr.innerHTML = `
+                <td class="px-6 py-4 font-medium text-stone-600 whitespace-nowrap">${esc(item.fecha)}</td>
+                <td class="px-6 py-4 font-mono font-bold text-guinda whitespace-nowrap">${esc(item.codigo)}</td>
+                <td class="px-6 py-4 font-semibold text-stone-800">${etiquetaSeccion}${esc(item.titulo)}</td>
+                <td class="px-6 py-4 text-stone-600">${esc(item.autor)}</td>
+                <td class="px-6 py-4 text-stone-600 whitespace-nowrap">${esc(item.material)}</td>
+                <td class="px-6 py-4 text-center font-bold text-stone-700">${esc(item.unidades)}</td>
+                <td class="px-6 py-4 text-stone-600 max-w-xs truncate" title="${esc(item.descripcion)}">${esc(item.descripcion)}</td>
+                <td class="px-6 py-4 whitespace-nowrap">${esc(item.estado)}</td>
+                <td class="px-6 py-4 text-stone-500 italic max-w-xs truncate" title="${esc(item.observaciones)}">${esc(item.observaciones)}</td>
+                <td class="px-6 py-4 text-center whitespace-nowrap">
+                    <button onclick="abrirEdicion(${item.id})" title="Editar" class="text-sky-700 hover:text-sky-900 p-2 rounded-lg hover:bg-sky-50 transition-colors">
+                        <i class="fa-solid fa-pen"></i>
+                    </button>
+                    <button onclick="eliminarRegistro(${item.id})" title="Eliminar" class="text-rose-600 hover:text-rose-800 p-2 rounded-lg hover:bg-rose-50 transition-colors">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </td>
+            `;
+            return tr;
+        }
+
+        function renderizarTabla() {
+            const busqueda = inputBuscador.value.trim();
+            tablaCuerpo.innerHTML = '';
+            const mensajeVacio = sinDatosDiv.querySelector('span');
+
+            // Modo búsqueda: revisa TODAS las secciones y ordena por parecido
+            if (busqueda) {
+                const { resultados, parcial } = buscarDifuso(busqueda);
+                if (resultados.length === 0) {
+                    if (mensajeVacio) mensajeVacio.textContent = 'No se encontró nada parecido a "' + busqueda + '".';
+                    sinDatosDiv.classList.remove('hidden');
+                    return;
+                }
+                sinDatosDiv.classList.add('hidden');
+                const filaHeader = document.createElement('tr');
+                filaHeader.className = 'bg-stone-200/60 border-t-2 border-b border-stone-300';
+                filaHeader.innerHTML = `
+                    <td colspan="10" class="px-6 py-3 font-bold text-stone-800 text-xs uppercase tracking-wider">
+                        <i class="fa-solid fa-magnifying-glass text-guinda mr-2"></i>
+                        Resultados en todas las secciones
+                        <span class="text-stone-500 text-xs font-normal ml-3">(${resultados.length} ${resultados.length === 1 ? 'resultado' : 'resultados'}, los más parecidos primero${parcial ? ' · coincidencias parciales' : ''})</span>
+                    </td>
+                `;
+                tablaCuerpo.appendChild(filaHeader);
+                resultados.forEach(r => tablaCuerpo.appendChild(filaRegistro(r.item, true)));
+                return;
+            }
+
+            // Modo normal: sección actual agrupada por ubicación
+            if (mensajeVacio) mensajeVacio.textContent = 'No hay registros en esta sección aún.';
+            const filtrados = inventario.filter(item => item.seccion === tabActual);
             if (filtrados.length === 0) {
                 sinDatosDiv.classList.remove('hidden');
             } else {
@@ -995,30 +1159,7 @@
                         </td>
                     `;
                     tablaCuerpo.appendChild(filaHeader);
-                    gruposUbicacion[ubi].forEach(item => {
-                        const tr = document.createElement('tr');
-                        tr.className = 'hover:bg-stone-50/80 transition-colors duration-150';
-                        tr.innerHTML = `
-                            <td class="px-6 py-4 font-medium text-stone-600 whitespace-nowrap">${esc(item.fecha)}</td>
-                            <td class="px-6 py-4 font-mono font-bold text-guinda whitespace-nowrap">${esc(item.codigo)}</td>
-                            <td class="px-6 py-4 font-semibold text-stone-800">${esc(item.titulo)}</td>
-                            <td class="px-6 py-4 text-stone-600">${esc(item.autor)}</td>
-                            <td class="px-6 py-4 text-stone-600 whitespace-nowrap">${esc(item.material)}</td>
-                            <td class="px-6 py-4 text-center font-bold text-stone-700">${esc(item.unidades)}</td>
-                            <td class="px-6 py-4 text-stone-600 max-w-xs truncate" title="${esc(item.descripcion)}">${esc(item.descripcion)}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${esc(item.estado)}</td>
-                            <td class="px-6 py-4 text-stone-500 italic max-w-xs truncate" title="${esc(item.observaciones)}">${esc(item.observaciones)}</td>
-                            <td class="px-6 py-4 text-center whitespace-nowrap">
-                                <button onclick="abrirEdicion(${item.id})" title="Editar" class="text-sky-700 hover:text-sky-900 p-2 rounded-lg hover:bg-sky-50 transition-colors">
-                                    <i class="fa-solid fa-pen"></i>
-                                </button>
-                                <button onclick="eliminarRegistro(${item.id})" title="Eliminar" class="text-rose-600 hover:text-rose-800 p-2 rounded-lg hover:bg-rose-50 transition-colors">
-                                    <i class="fa-solid fa-trash-can"></i>
-                                </button>
-                            </td>
-                        `;
-                        tablaCuerpo.appendChild(tr);
-                    });
+                    gruposUbicacion[ubi].forEach(item => tablaCuerpo.appendChild(filaRegistro(item, false)));
                     const filaEspacio = document.createElement('tr');
                     filaEspacio.innerHTML = '<td colspan="10" class="h-4 bg-transparent"></td>';
                     tablaCuerpo.appendChild(filaEspacio);
